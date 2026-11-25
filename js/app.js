@@ -19,6 +19,16 @@ const newId = () => crypto.randomUUID();
 let { state, warning, locked } = storage.load();
 let week = logic.weekStart(logic.todayISO());
 let toastTimer;
+let branchId = storage.lastBranch();
+// The branch being looked at: its people and notes.
+const view = () => logic.branchView(state, branchId);
+
+function switchBranch(id) {
+  branchId = id;
+  storage.rememberBranch(id);
+  hideToast();
+  render();
+}
 
 // Tiny helper for building elements. Text is always inserted as text, never as HTML.
 function el(tag, props = {}, ...children) {
@@ -97,7 +107,7 @@ function visibleDates() {
   const dates = logic.weekDates(week);
   const sunday = dates[0];
   // Sunday is always shown if someone is scheduled then, so no hours are ever hidden.
-  const needed = state.showSunday || Object.keys(state.shifts[sunday] ?? {}).length > 0;
+  const needed = state.showSunday || view().people.some((p) => state.shifts[sunday]?.[p.id]);
   return needed ? dates : dates.slice(1);
 }
 
@@ -105,14 +115,22 @@ function render() {
   $('#week-label').textContent = logic.weekLabel(week);
   $('#jump').value = week;
   $('#show-sunday').checked = state.showSunday;
+  renderBranches();
   renderBanner();
   renderSchedule();
   renderBackupNote();
 }
 
+function renderBranches() {
+  const current = view().branch;
+  $('#print-branch').textContent = `${current.name} · `;
+  $('#branches').replaceChildren(...state.branches.map((b) =>
+    button(b.name, () => switchBranch(b.id), { 'aria-pressed': String(b.id === current.id) })));
+}
+
 function renderBanner() {
   const banner = $('#banner');
-  const results = state.people.map((person) => ({ person, summary: logic.weekSummary(state, person, week) }));
+  const results = view().people.map((person) => ({ person, summary: logic.weekSummary(state, person, week) }));
   const off = results.filter((r) => r.summary.status !== 'on');
   banner.className = `banner ${off.length ? 'attention' : 'good'}`;
   if (!results.length) return banner.replaceChildren();
@@ -129,9 +147,10 @@ function renderBanner() {
 
 function renderSchedule() {
   const root = $('#schedule');
-  if (!state.people.length) {
+  const { people, notes, branch } = view();
+  if (!people.length) {
     root.replaceChildren(el('div', { className: 'empty' },
-      el('h3', {}, 'Add your first team member'),
+      el('h3', {}, `Add the first team member for ${branch.name}`),
       el('p', {}, 'Give them a name, a position, full or part time, and weekly hours. Then click any day to schedule them.'),
       el('p', {}, button('+ Add person', () => personDialog(), { className: 'primary' })),
     ));
@@ -147,7 +166,7 @@ function renderSchedule() {
     el('th', { className: 'total-col', scope: 'col' }, 'Week total'),
   );
 
-  const rows = state.people.map((person) => {
+  const rows = people.map((person) => {
     const tag = tagOf(person);
     const summary = logic.weekSummary(state, person, week);
     return el('tr', {},
@@ -163,7 +182,7 @@ function renderSchedule() {
     );
   });
 
-  const hasNotes = dates.some((date) => state.notes[date]);
+  const hasNotes = dates.some((date) => notes[date]);
   const noteRow = el('tr', { className: hasNotes ? 'notes' : 'notes blank' },
     el('th', { scope: 'row' }, 'Schedule Notes'),
     dates.map((date) => el('td', {}, noteCell(date))),
@@ -174,7 +193,7 @@ function renderSchedule() {
 }
 
 function noteCell(date) {
-  const note = state.notes[date];
+  const note = view().notes[date];
   const day = logic.formatDate(date, { weekday: 'long', month: 'long', day: 'numeric' });
   return button(note ?? '+ Note', () => noteDialog(date), {
     className: note ? 'note' : 'note off',
@@ -183,11 +202,15 @@ function noteCell(date) {
 }
 
 function noteDialog(date) {
-  const existing = state.notes[date];
+  const { branch, notes } = view();
+  const existing = notes[date];
   const input = el('textarea', { rows: 3, maxLength: logic.NOTE_LENGTH, value: existing ?? '' });
   const save = (value, message) => {
     closeDialog();
-    change(() => { state.notes = logic.setNote(state.notes, date, value); }, message);
+    change(() => {
+      const target = state.branches.find((b) => b.id === branch.id);
+      target.notes = logic.setNote(target.notes, date, value);
+    }, message);
   };
   const form = el('form', { className: 'list', onsubmit: (e) => { e.preventDefault(); save(input.value); } },
     field('Note', input, el('span', { className: 'hint' }, `Shown at the top of this day, and on printouts. Up to ${logic.NOTE_LENGTH} characters.`)),
@@ -308,6 +331,8 @@ function personDialog(person) {
       el('span', {}, label)))));
   target.addEventListener('input', () => { hoursTouched = true; });
   updateHint();
+  const home = el('select', {}, state.branches.map((b) =>
+    el('option', { value: b.id, selected: b.id === (person?.branchId ?? view().branch.id) }, b.name)));
   const error = el('p', { className: 'error', role: 'alert' });
 
   function submit(addAnother) {
@@ -319,6 +344,10 @@ function personDialog(person) {
     const label = tagName.value.trim();
     if (wantsNew && !label && state.tags.length) { error.textContent = 'Name the new position, or pick another option.'; return tagName.focus(); }
 
+    const destination = state.branches.find((b) => b.id === home.value);
+    const moved = person && person.branchId !== destination.id;
+    // A new person added to another branch: show that branch, so they don't seem to vanish.
+    if (!person && destination.id !== view().branch.id) switchBranch(destination.id);
     change(() => {
       let tagId = wantsNew ? null : position.value || null;
       if (wantsNew && label) {
@@ -326,10 +355,10 @@ function personDialog(person) {
         tagId = existing?.id ?? newId();
         if (!existing) state.tags.push({ id: tagId, name: label, color });
       }
-      const values = { name: cleanName, tagId, employment, weeklyTarget: hours };
+      const values = { name: cleanName, tagId, employment, weeklyTarget: hours, branchId: destination.id };
       if (person) Object.assign(state.people.find((p) => p.id === person.id), values);
       else state.people.push({ id: newId(), ...values });
-    });
+    }, moved ? `${cleanName} moved to ${destination.name}.` : undefined);
     storage.requestPersistence();
 
     if (addAnother) {
@@ -338,14 +367,19 @@ function personDialog(person) {
     } else closeDialog();
   }
 
+  // Order is changed among the people of the same branch.
+  const peers = person ? state.people.filter((p) => p.branchId === person.branchId) : [];
+  const index = peers.findIndex((p) => p.id === person?.id);
   const move = (step) => {
-    const from = state.people.findIndex((p) => p.id === person.id);
-    const to = from + step;
-    if (to < 0 || to >= state.people.length) return;
-    change(() => state.people.splice(to, 0, state.people.splice(from, 1)[0]));
-    personDialog(state.people[to]);
+    const other = peers[index + step];
+    if (!other) return;
+    change(() => {
+      const from = state.people.findIndex((p) => p.id === person.id);
+      const to = state.people.findIndex((p) => p.id === other.id);
+      [state.people[from], state.people[to]] = [state.people[to], state.people[from]];
+    });
+    personDialog(state.people.find((p) => p.id === person.id));
   };
-  const index = person ? state.people.findIndex((p) => p.id === person.id) : -1;
 
   const remove = () => {
     if (!confirm(`Remove ${person.name} and all of their shifts?`)) return;
@@ -361,6 +395,7 @@ function personDialog(person) {
 
   const form = el('form', { className: 'list', noValidate: true, onsubmit: (e) => { e.preventDefault(); submit(false); } },
     field('Name', name),
+    state.branches.length > 1 && field('Branch', home),
     field('Position', position),
     newTag,
     choices,
@@ -368,7 +403,7 @@ function personDialog(person) {
     holidayHint,
     person && el('div', { className: 'row' }, 'Order in list:',
       button('Move up', () => move(-1), { disabled: index === 0 }),
-      button('Move down', () => move(1), { disabled: index === state.people.length - 1 })),
+      button('Move down', () => move(1), { disabled: index === peers.length - 1 })),
     error,
     el('div', { className: 'actions' },
       person && button('Remove person', remove, { className: 'danger left' }),
@@ -522,6 +557,56 @@ function shiftDialog(person, date) {
 
   openDialog(`${person.name} · ${logic.formatDate(date, { weekday: 'long', month: 'short', day: 'numeric' })}`, form);
   refresh();
+}
+
+function branchesDialog() {
+  const taken = (label, exceptId) => state.branches.some((b) => b.id !== exceptId && b.name.toLowerCase() === label.toLowerCase());
+  const name = el('input', { type: 'text', maxLength: 40, placeholder: 'New branch name', 'aria-label': 'New branch name', autocomplete: 'off' });
+
+  const add = (event) => {
+    event.preventDefault();
+    const label = name.value.trim();
+    if (!label) return name.focus();
+    if (taken(label)) return toast('There is already a branch with that name.');
+    const id = newId();
+    change(() => state.branches.push({ id, name: label, notes: {} }));
+    switchBranch(id);
+    branchesDialog();
+  };
+
+  const items = state.branches.map((branch) => {
+    const count = state.people.filter((p) => p.branchId === branch.id).length;
+    const only = state.branches.length === 1;
+    return el('div', { className: 'item' },
+      el('div', { className: 'row' },
+        el('input', {
+          type: 'text', value: branch.name, maxLength: 40, 'aria-label': 'Branch name',
+          onchange: (e) => {
+            const label = e.target.value.trim();
+            if (!label || taken(label, branch.id)) {
+              if (label) toast('There is already a branch with that name.');
+              e.target.value = state.branches.find((b) => b.id === branch.id).name;
+              return;
+            }
+            change(() => { state.branches.find((b) => b.id === branch.id).name = label; });
+          },
+        }),
+        button('Delete', () => {
+          if (Object.keys(branch.notes).length && !confirm(`Delete "${branch.name}" and its schedule notes?`)) return;
+          change(() => { state.branches = state.branches.filter((b) => b.id !== branch.id); }, 'Branch deleted.');
+          branchesDialog();
+        }, { className: 'danger', disabled: only || count > 0 })),
+      el('span', { className: 'hint' }, `${count} ${count === 1 ? 'person' : 'people'}`
+        + (count && !only ? '. Move or remove them before deleting this branch.' : '')));
+  });
+
+  openDialog('Branches',
+    el('p', { className: 'hint' }, 'Type over a name to rename it. Each branch has its own team, schedule and notes. Positions and holidays are shared.'),
+    el('div', { className: 'list' }, items),
+    el('form', { className: 'item', onsubmit: add },
+      el('div', { className: 'row' }, name, el('button', { type: 'submit', className: 'primary' }, 'Add branch'))),
+    el('div', { className: 'actions' }, button('Done', closeDialog)),
+  );
 }
 
 function positionsDialog() {
@@ -691,6 +776,7 @@ function backupDialog() {
 
 const actions = {
   'add-person': () => personDialog(),
+  branches: () => branchesDialog(),
   positions: () => positionsDialog(),
   holidays: () => holidaysDialog(),
   backup: () => backupDialog(),
@@ -699,16 +785,18 @@ const actions = {
   'this-week': () => goTo(logic.todayISO()),
   print: () => window.print(),
   pdf: () => {
-    if (!state.people.length) return toast('Add someone to the schedule first.');
-    download(buildPdf(state, week, visibleDates()), `schedule-${week}.pdf`, 'application/pdf');
+    const current = view();
+    if (!current.people.length) return toast('Add someone to the schedule first.');
+    const slug = current.branch.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'branch';
+    download(buildPdf(current, week, visibleDates()), `schedule-${slug}-${week}.pdf`, 'application/pdf');
     toast('PDF saved. Check your Downloads folder.');
   },
   'copy-week': () => {
-    if (!state.people.length) return toast('Add someone to the schedule first.');
+    if (!view().people.length) return toast('Add someone to the schedule first.');
     const previous = logic.addDays(week, -7);
-    if (!logic.weekHasShifts(state, previous)) return toast('Last week has no shifts to copy.');
-    if (logic.weekHasShifts(state, week) && !confirm('This week already has shifts. Replace them with last week\'s schedule?')) return;
-    const { shifts, skipped } = logic.copyWeek(state, previous, week);
+    if (!logic.weekHasShifts(view(), previous)) return toast('Last week has no shifts to copy.');
+    if (logic.weekHasShifts(view(), week) && !confirm(`${view().branch.name} already has shifts this week. Replace them with last week's schedule?`)) return;
+    const { shifts, skipped } = logic.copyWeek(view(), previous, week);
     const names = skipped.map((d) => logic.formatDate(d, { weekday: 'long' })).join(' and ');
     change(() => { state.shifts = shifts; },
       names ? `Copied. Check ${names}: it was a holiday last week, so nothing was copied there.` : 'Last week copied.');

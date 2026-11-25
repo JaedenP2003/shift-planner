@@ -16,6 +16,7 @@
     <h1>Shift Planner</h1>
     <nav>
       <button type="button" data-action="add-person" class="primary">+ Add person</button>
+      <button type="button" data-action="branches">Branches</button>
       <button type="button" data-action="positions">Positions</button>
       <button type="button" data-action="holidays">Holidays</button>
       <button type="button" data-action="backup">Backup</button>
@@ -25,6 +26,8 @@
   <main>
     <div id="warning" class="warning" role="alert" hidden></div>
 
+    <div id="branches" class="branches" role="group" aria-label="Branch"></div>
+
     <section class="toolbar" aria-label="Week controls">
       <div class="week-nav">
         <button type="button" data-action="prev-week" aria-label="Previous week">‹</button>
@@ -32,7 +35,7 @@
         <button type="button" data-action="next-week" aria-label="Next week">›</button>
         <input type="date" id="jump" aria-label="Jump to a date">
       </div>
-      <h2 id="week-label"></h2>
+      <h2><span id="print-branch" class="print-only"></span><span id="week-label"></span></h2>
       <div class="week-actions">
         <label class="check"><input type="checkbox" id="show-sunday"> Show Sunday</label>
         <button type="button" data-action="copy-week" class="primary">Copy last week</button>

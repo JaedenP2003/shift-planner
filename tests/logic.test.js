@@ -4,8 +4,8 @@ import * as logic from '../js/logic.js';
 import { emptyState, load, save, sanitize } from '../js/storage.js';
 import { buildPdf, wrap } from '../js/pdf.js';
 
-const full = { id: 'a', name: 'Alex', tagId: null, employment: 'full', weeklyTarget: 40 };
-const part = { id: 'b', name: 'Bo (PT)', tagId: null, employment: 'part', weeklyTarget: 20 };
+const full = { id: 'a', name: 'Alex', tagId: null, employment: 'full', branchId: 'branch-1', weeklyTarget: 40 };
+const part = { id: 'b', name: 'Bo (PT)', tagId: null, employment: 'part', branchId: 'branch-1', weeklyTarget: 20 };
 const day = { start: '08:00', end: '17:00', lunch: 30, lunchStart: '12:00' };
 
 function fakeStore(initial = {}) {
@@ -63,7 +63,7 @@ test('week totals and over/under sentences', () => {
 });
 
 test('copying a week skips holidays on both sides', () => {
-  const state = { ...emptyState(), shifts: {} };
+  const state = { ...emptyState(), people: [full], shifts: {} };
   // Week of Nov 22 contains Thanksgiving (Thu 26). Copy it to the next week.
   state.shifts['2026-11-23'] = { a: day };
   state.shifts['2026-12-03'] = { a: day }; // Thursday already scheduled in the target week
@@ -168,8 +168,9 @@ test('version 1 data is upgraded without losing anyone', () => {
     people: [{ id: 'a', name: 'A', weeklyTarget: 40, lunch: 30 }, { id: 'b', name: 'B', weeklyTarget: 25, lunch: 45 }],
     shifts: { '2026-11-23': { a: { start: '09:00', end: '17:00', lunch: 30 } } } };
   const clean = sanitize(old);
-  assert.equal(clean.version, 3);
-  assert.deepEqual(clean.notes, {});
+  assert.equal(clean.version, 4);
+  assert.deepEqual(clean.branches, [{ id: 'branch-1', name: 'Branch 1', notes: {} }]);
+  assert.deepEqual(clean.people.map((p) => p.branchId), ['branch-1', 'branch-1']);
   assert.deepEqual(clean.people.map((p) => p.employment), ['full', 'part']);
   assert.ok(!('lunch' in clean.people[0]));
   assert.deepEqual(clean.shifts['2026-11-23'].a, { start: '09:00', end: '17:00', lunch: 30, lunchStart: null });
@@ -196,9 +197,12 @@ test('notes are trimmed, removed when blank, and survive saving', () => {
   assert.deepEqual(notes, { '2026-12-01': 'Staff meeting 8:30' });
   assert.deepEqual(logic.setNote(notes, '2026-12-01', '   '), {});
   const store = fakeStore();
-  save({ ...emptyState(), notes }, store);
-  assert.deepEqual(load(store).state.notes, notes);
-  assert.deepEqual(sanitize({ ...emptyState(), notes: { bad: 'x', '2026-12-02': 5 } }).notes, {});
+  const state = emptyState();
+  state.branches[0].notes = notes;
+  save(state, store);
+  assert.deepEqual(load(store).state.branches[0].notes, notes);
+  const junk = { ...emptyState(), branches: [{ id: 'x', name: 'X', notes: { bad: 'x', '2026-12-02': 5 } }] };
+  assert.deepEqual(sanitize(junk).branches[0].notes, {});
 });
 
 test('PDF wraps long notes', () => {
@@ -208,4 +212,36 @@ test('PDF wraps long notes', () => {
   const text = Buffer.from(buildPdf(state, '2026-11-22', logic.weekDates('2026-11-22').slice(1))).toString('latin1');
   assert.match(text, /\(Schedule Notes\) Tj/);
   assert.match(text, /\(Staff meeting\) Tj/);
+});
+
+const twoBranches = () => ({
+  ...emptyState(),
+  branches: [{ id: 'north', name: 'North', notes: { '2026-12-01': 'N' } }, { id: 'south', name: 'South', notes: {} }],
+  people: [{ ...full, branchId: 'north' }, { ...part, branchId: 'south' }],
+});
+
+test('each branch sees only its own people and notes', () => {
+  const state = twoBranches();
+  assert.deepEqual(logic.branchView(state, 'south').people.map((p) => p.id), ['b']);
+  assert.deepEqual(logic.branchView(state, 'south').notes, {});
+  assert.equal(logic.branchView(state, 'gone').branch.id, 'north');
+});
+
+test('copying a week in one branch leaves the other untouched', () => {
+  const state = twoBranches();
+  state.shifts = { '2026-11-30': { a: day }, '2026-12-07': { b: day }, '2026-12-08': { a: day, b: day } };
+  const north = logic.branchView(state, 'north');
+  assert.equal(logic.weekHasShifts(logic.branchView(state, 'south'), '2026-11-29'), false);
+  const { shifts } = logic.copyWeek(north, '2026-11-29', '2026-12-06');
+  assert.deepEqual(shifts['2026-12-07'], { a: day, b: day });
+  assert.deepEqual(shifts['2026-12-08'], { b: day });
+});
+
+test('branches survive saving, and older notes move into the first branch', () => {
+  const state = twoBranches();
+  assert.deepEqual(sanitize(state).branches, state.branches);
+  assert.deepEqual(sanitize(state).people.map((p) => p.branchId), ['north', 'south']);
+  const { branches, ...old } = emptyState();
+  const upgraded = sanitize({ ...old, version: 3, notes: { '2026-12-01': 'Keep me' } });
+  assert.deepEqual(upgraded.branches[0].notes, { '2026-12-01': 'Keep me' });
 });

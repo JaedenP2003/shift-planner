@@ -239,6 +239,15 @@ export function adaptShift(state, personId, shift, from, to) {
   return next;
 }
 
+// ---------- branches ----------
+
+// The schedule as one branch sees it: its own people and notes. Shifts, positions
+// and holidays are shared. Falls back to the first branch if `branchId` is gone.
+export function branchView(state, branchId) {
+  const branch = state.branches.find((b) => b.id === branchId) ?? state.branches[0];
+  return { ...state, branch, notes: branch.notes, people: state.people.filter((p) => p.branchId === branch.id) };
+}
+
 // ---------- schedule notes ----------
 
 // Returns a new notes object; a blank note removes that day's entry.
@@ -252,9 +261,10 @@ export function setNote(notes, iso, value) {
 
 // ---------- copying ----------
 
+// Both of these only look at `state.people`, so passing a branch view leaves other branches alone.
 export function weekHasShifts(state, start) {
   return weekDates(start).some((date) =>
-    holidayName(date, state.holidayEdits) === null && Object.keys(state.shifts[date] ?? {}).length > 0);
+    holidayName(date, state.holidayEdits) === null && state.people.some((p) => state.shifts[date]?.[p.id]));
 }
 
 // Makes the target week match the source week. Holidays in either week are left alone,
@@ -270,8 +280,13 @@ export function copyWeek(state, from, to) {
       skipped.push(target);
       continue;
     }
-    const day = state.shifts[source];
-    if (day && Object.keys(day).length) shifts[target] = structuredClone(day);
+    const day = { ...shifts[target] };
+    for (const { id } of state.people) {
+      const shift = state.shifts[source]?.[id];
+      if (shift) day[id] = { ...shift };
+      else delete day[id];
+    }
+    if (Object.keys(day).length) shifts[target] = day;
     else delete shifts[target];
   }
   return { shifts, skipped };

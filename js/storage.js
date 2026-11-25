@@ -7,7 +7,8 @@ import { DEFAULT_HOURS, LUNCH_CHOICES, isISODate, setNote, timeToMinutes } from 
 const KEY = 'shiftPlanner.data';
 const PREVIOUS_KEY = 'shiftPlanner.previous';
 const BACKUP_DATE_KEY = 'shiftPlanner.lastBackup';
-export const VERSION = 3; // 2: full/part time and lunch start. 3: schedule notes
+const BRANCH_KEY = 'shiftPlanner.branch';
+export const VERSION = 4; // 2: full/part time and lunch start. 3: schedule notes. 4: branches
 
 export const emptyState = () => ({
   version: VERSION,
@@ -16,7 +17,7 @@ export const emptyState = () => ({
   people: [],
   shifts: {},
   holidayEdits: {},
-  notes: {},
+  branches: [{ id: 'branch-1', name: 'Branch 1', notes: {} }],
 });
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -40,6 +41,20 @@ export function sanitize(raw) {
     state.tags.push({ id: tag.id, name: text(tag.name, 40), color });
   }
 
+  const cleanNotes = (notes) => {
+    let clean = {};
+    for (const [date, note] of Object.entries(isObject(notes) ? notes : {})) {
+      if (isISODate(date) && typeof note === 'string') clean = setNote(clean, date, note);
+    }
+    return clean;
+  };
+  const branches = (Array.isArray(raw.branches) ? raw.branches : [])
+    .filter((b) => isObject(b) && isId(b.id) && text(b.name, 40))
+    .map((b) => ({ id: b.id, name: text(b.name, 40), notes: cleanNotes(b.notes) }));
+  if (branches.length) state.branches = branches;
+  // Before version 4 there were no branches, and notes sat at the top level.
+  else state.branches[0].notes = cleanNotes(raw.notes);
+
   for (const person of raw.people) {
     if (!isObject(person) || !isId(person.id) || !text(person.name, 60)) continue;
     const target = Number(person.weeklyTarget);
@@ -52,6 +67,7 @@ export function sanitize(raw) {
       name: text(person.name, 60),
       tagId: state.tags.some((t) => t.id === person.tagId) ? person.tagId : null,
       employment,
+      branchId: state.branches.some((b) => b.id === person.branchId) ? person.branchId : state.branches[0].id,
       weeklyTarget: target >= 0 && target <= 168 ? target : DEFAULT_HOURS[employment],
     });
   }
@@ -77,10 +93,6 @@ export function sanitize(raw) {
     if (!isISODate(date)) continue;
     if (name === null) state.holidayEdits[date] = null;
     else if (text(name, 60)) state.holidayEdits[date] = text(name, 60);
-  }
-
-  for (const [date, note] of Object.entries(isObject(raw.notes) ? raw.notes : {})) {
-    if (isISODate(date) && typeof note === 'string') state.notes = setNote(state.notes, date, note);
   }
 
   return state;
@@ -143,6 +155,15 @@ export const lastBackup = () => {
 
 export const markBackup = () => {
   try { localStorage.setItem(BACKUP_DATE_KEY, String(Date.now())); } catch { /* not important */ }
+};
+
+// Which branch was open last. A viewing preference, so it isn't part of the schedule data.
+export const lastBranch = () => {
+  try { return localStorage.getItem(BRANCH_KEY); } catch { return null; }
+};
+
+export const rememberBranch = (id) => {
+  try { localStorage.setItem(BRANCH_KEY, id); } catch { /* not important */ }
 };
 
 // Asks the browser not to evict our data when disk space runs low.

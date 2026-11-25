@@ -70,7 +70,7 @@ export function buildPdf(state, start, dates) {
     const out = [
       box(margin, margin, usable, 40, NAVY),
       box(margin, margin + 40, usable, 4, ORANGE),
-      write(margin + 12, margin + 26, 'Team Schedule', 18, '#FFFFFF', true),
+      write(margin + 12, margin + 26, fit(`${state.branch?.name ?? 'Team'} Schedule`, 480, 18), 18, '#FFFFFF', true),
       write(PAGE.width - margin - 190, margin + 25, weekLabel(start), 12, '#FFFFFF'),
       box(margin, headerBottom - 22, usable, 22, '#DFE6EC'),
       write(margin + 6, headerBottom - 8, 'Team member', 9, NAVY, true),

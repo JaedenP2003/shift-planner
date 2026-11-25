@@ -70,6 +70,11 @@ main { padding: 18px 24px; }
 
 .warning { background: #fff1e0; border-left: 5px solid var(--orange); padding: 12px 16px; margin-bottom: 14px; font-weight: 500; }
 
+.branches { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 14px; border-bottom: 3px solid var(--blue); }
+.branches button { background: var(--mist); border-bottom: 0; padding: 9px 20px; max-width: 100%; overflow-wrap: anywhere; }
+.branches button[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #fff; }
+.print-only { display: none; }
+
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .toolbar h2 { color: var(--navy); font-size: 22px; }
 .week-nav, .week-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -201,7 +206,8 @@ dialog::backdrop { background: #00234599; }
   @page { size: letter landscape; margin: .4in; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; font-size: 11px; }
-  .topbar nav, .week-nav, .week-actions, .banner, .warning, footer, .toast, dialog { display: none !important; }
+  .print-only { display: inline; }
+  .topbar nav, .branches, .week-nav, .week-actions, .banner, .warning, footer, .toast, dialog { display: none !important; }
   .topbar { padding: 8px 12px; }
   main { padding: 10px 0 0; }
   .table-wrap { overflow: visible; border: 0; }

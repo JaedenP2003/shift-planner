@@ -4,6 +4,9 @@ A weekly team schedule builder that runs entirely in the browser. No account and
 
 ## Using it
 
+Use **Branches** to name each branch and switch between them with the tabs. Each branch has its own
+team, schedule and notes; positions and holidays are shared.
+
 1. **Add person**: name, position (create positions as you go), full or part time, and weekly hours.
 2. Click any day to set start, end and lunch start. Pick from the list or type, such as `845` or `2:15p`.
    Lunch is pre-filled at 45 minutes on weekdays and 30 on weekends. Tick other days to reuse the times.
