@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Shift Planner</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23002345'/%3E%3Crect x='6' y='9' width='20' height='5' fill='%23FF8300'/%3E%3Crect x='6' y='18' width='13' height='5' fill='%23148CC5'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Shift Planner</h1>
+    <nav>
+      <button type="button" data-action="add-person" class="primary">+ Add person</button>
+      <button type="button" data-action="positions">Positions</button>
+      <button type="button" data-action="holidays">Holidays</button>
+      <button type="button" data-action="backup">Backup</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="warning" class="warning" role="alert" hidden></div>
+
+    <section class="toolbar" aria-label="Week controls">
+      <div class="week-nav">
+        <button type="button" data-action="prev-week" aria-label="Previous week">‹</button>
+        <button type="button" data-action="this-week">This week</button>
+        <button type="button" data-action="next-week" aria-label="Next week">›</button>
+        <input type="date" id="jump" aria-label="Jump to a date">
+      </div>
+      <h2 id="week-label"></h2>
+      <div class="week-actions">
+        <label class="check"><input type="checkbox" id="show-sunday"> Show Sunday</label>
+        <button type="button" data-action="copy-week" class="primary">Copy last week</button>
+        <button type="button" data-action="print">Print</button>
+        <button type="button" data-action="pdf">Save PDF</button>
+      </div>
+    </section>
+
+    <div id="banner" class="banner" role="status" aria-live="polite"></div>
+    <div id="schedule"></div>
+  </main>
+
+  <footer>
+    <span>Your team and schedules are saved only in this browser.</span>
+    <span id="backup-note"></span>
+    <span>A personal planning tool, not an official America First Credit Union product.</span>
+  </footer>
+
+  <dialog id="dialog"></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <noscript>Shift Planner needs JavaScript turned on.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
