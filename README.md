@@ -15,8 +15,11 @@ team, schedule and notes; positions and holidays are shared.
    Use the **Schedule Notes** row to add a short note to any day.
 5. **Print** or **Save PDF** to share it.
 
-Holidays are blacked out. Full-time people get 8 hours for each one.
+Holidays are blacked out. Full-time people get 8 hours for each one, and people on 30 hours get 6.
 Federal Reserve holidays are filled in for every year and can be edited under **Holidays**.
+
+Under **Positions**, mark any position as **Required to open and close**. The schedule then flags
+a day when nobody in that position is there for the day's first start or its last end.
 
 ## Where the data lives
 

@@ -1,7 +1,9 @@
 // Pure scheduling rules: dates, holidays, hours and copying weeks.
 // Nothing here touches the page or storage, so it can be tested with Node.
 
-export const HOLIDAY_MINUTES = 8 * 60;
+export const HOLIDAY_MINUTES = { full: 8 * 60, thirty: 6 * 60 };
+// 29.75 through 30 hours is a 30-hour week, the same quarter-hour leeway as full time.
+export const THIRTY_WEEK = { from: 29.75, to: 30 };
 // Shifts move in quarter hours, so 39.75 through 40 all count as a full-time week.
 export const FULL_WEEK = { from: 39.75 * 60, to: 40 * 60 };
 export const NOTE_LENGTH = 120;
@@ -132,11 +134,19 @@ export function paidMinutes(shift) {
 
 export const isFullTime = (person) => person.employment === 'full';
 
+// What a holiday adds to someone's week. A 30-hour week gets 6 hours, however it is labelled;
+// otherwise full time gets 8 and part time gets none.
+export function holidayMinutes(person) {
+  const hours = person.weeklyTarget;
+  if (hours >= THIRTY_WEEK.from && hours <= THIRTY_WEEK.to) return HOLIDAY_MINUTES.thirty;
+  return isFullTime(person) ? HOLIDAY_MINUTES.full : 0;
+}
+
 // What one person has on one day: a holiday, a shift, or nothing, plus the minutes it counts for.
 export function dayInfo(state, person, date) {
   const holiday = holidayName(date, state.holidayEdits);
   if (holiday !== null) {
-    return { type: 'holiday', name: holiday, minutes: isFullTime(person) ? HOLIDAY_MINUTES : 0 };
+    return { type: 'holiday', name: holiday, minutes: holidayMinutes(person) };
   }
   const shift = state.shifts[date]?.[person.id];
   if (shift) return { type: 'shift', shift, minutes: paidMinutes(shift) };
@@ -246,6 +256,43 @@ export function adaptShift(state, personId, shift, from, to) {
 export function branchView(state, branchId) {
   const branch = state.branches.find((b) => b.id === branchId) ?? state.branches[0];
   return { ...state, branch, notes: branch.notes, people: state.people.filter((p) => p.branchId === branch.id) };
+}
+
+// ---------- required positions ----------
+
+// Days in a week where a required position isn't there to open or close. The day opens when
+// the first shift starts and closes when the last one ends. Holidays and days with nobody
+// scheduled are skipped. Pass a branch view to check one branch.
+export function coverageGaps(state, start) {
+  const required = state.tags.filter((t) => t.required);
+  const gaps = [];
+  for (const date of weekDates(start)) {
+    if (holidayName(date, state.holidayEdits) !== null) continue;
+    const working = state.people
+      .map((person) => ({ person, shift: state.shifts[date]?.[person.id] }))
+      .filter(({ shift }) => shift && !shiftProblem(shift));
+    if (!working.length) continue;
+    // "HH:MM" strings sort in time order.
+    const open = working.map((w) => w.shift.start).sort()[0];
+    const close = working.map((w) => w.shift.end).sort().at(-1);
+    for (const tag of required) {
+      const holders = working.filter((w) => w.person.tagId === tag.id);
+      const opens = holders.some((w) => w.shift.start === open);
+      const closes = holders.some((w) => w.shift.end === close);
+      if (opens && closes) continue;
+      const missing = !holders.length ? 'day' : opens ? 'close' : closes ? 'open' : 'both';
+      gaps.push({ date, tagId: tag.id, name: tag.name, missing, open, close });
+    }
+  }
+  return gaps;
+}
+
+export function gapSentence({ name, missing, open, close }) {
+  const opening = `opening (${formatTime(open)})`;
+  const closing = `closing (${formatTime(close)})`;
+  if (missing === 'day') return `no ${name} scheduled.`;
+  if (missing === 'both') return `no ${name} at ${opening} or ${closing}.`;
+  return `no ${name} at ${missing === 'open' ? opening : closing}.`;
 }
 
 // ---------- schedule notes ----------

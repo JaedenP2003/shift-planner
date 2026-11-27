@@ -163,12 +163,49 @@ test('holiday hours follow full or part time, not the hour target', () => {
   assert.equal(logic.dayInfo(state, { ...part, weeklyTarget: 40 }, '2026-11-26').minutes, 0);
 });
 
+test('a 30-hour week gets 6 holiday hours', () => {
+  assert.equal(logic.holidayMinutes({ ...part, weeklyTarget: 30 }), 360);
+  assert.equal(logic.holidayMinutes({ ...part, weeklyTarget: 29.75 }), 360);
+  assert.equal(logic.holidayMinutes({ ...full, weeklyTarget: 30 }), 360);
+  assert.equal(logic.holidayMinutes({ ...part, weeklyTarget: 29.5 }), 0);
+  assert.equal(logic.holidayMinutes({ ...part, weeklyTarget: 32 }), 0);
+});
+
+test('required positions are checked at opening and closing', () => {
+  const tags = [{ id: 'sup', name: 'Supervisor', required: true }, { id: 'tel', name: 'Teller', required: false }];
+  const people = [{ ...full, id: 's', tagId: 'sup' }, { ...full, id: 't', tagId: 'tel' }];
+  const early = { start: '08:30', end: '17:00', lunch: 0 };
+  const late = { start: '09:00', end: '18:00', lunch: 0 };
+  const all = { start: '08:30', end: '18:00', lunch: 0 };
+  const shifts = {
+    '2026-12-07': { s: all, t: early }, // covered
+    '2026-12-08': { s: late, t: early }, // misses opening
+    '2026-12-09': { s: early, t: late }, // misses closing
+    '2026-12-10': { t: all }, // nobody
+    '2026-12-11': { s: { start: '09:00', end: '17:00', lunch: 0 }, t: all }, // misses both
+  };
+  const state = { ...emptyState(), tags, people, shifts };
+  const gaps = logic.coverageGaps(state, '2026-12-06');
+  assert.deepEqual(gaps.map((g) => [g.date, g.missing]),
+    [['2026-12-08', 'open'], ['2026-12-09', 'close'], ['2026-12-10', 'day'], ['2026-12-11', 'both']]);
+  assert.equal(logic.gapSentence(gaps[0]), 'no Supervisor at opening (8:30A).');
+  assert.equal(logic.gapSentence(gaps[3]), 'no Supervisor at opening (8:30A) or closing (6P).');
+  // Holidays and days with nobody scheduled are not flagged.
+  state.shifts = { '2026-12-25': { t: all } };
+  assert.deepEqual(logic.coverageGaps(state, '2026-12-20'), []);
+});
+
+test('the required setting survives saving, and older data has none', () => {
+  const tags = [{ id: 'a', name: 'A', color: '#00548E', required: true }, { id: 'b', name: 'B', color: '#00548E' }];
+  assert.deepEqual(sanitize({ ...emptyState(), version: 4, tags }).tags.map((t) => t.required), [true, false]);
+});
+
 test('version 1 data is upgraded without losing anyone', () => {
   const old = { ...emptyState(), version: 1,
     people: [{ id: 'a', name: 'A', weeklyTarget: 40, lunch: 30 }, { id: 'b', name: 'B', weeklyTarget: 25, lunch: 45 }],
     shifts: { '2026-11-23': { a: { start: '09:00', end: '17:00', lunch: 30 } } } };
   const clean = sanitize(old);
-  assert.equal(clean.version, 4);
+  assert.equal(clean.version, 5);
   assert.deepEqual(clean.branches, [{ id: 'branch-1', name: 'Branch 1', notes: {} }]);
   assert.deepEqual(clean.people.map((p) => p.branchId), ['branch-1', 'branch-1']);
   assert.deepEqual(clean.people.map((p) => p.employment), ['full', 'part']);

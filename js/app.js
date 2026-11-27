@@ -132,18 +132,28 @@ function renderBanner() {
   const banner = $('#banner');
   const results = view().people.map((person) => ({ person, summary: logic.weekSummary(state, person, week) }));
   const off = results.filter((r) => r.summary.status !== 'on');
-  banner.className = `banner ${off.length ? 'attention' : 'good'}`;
+  const gaps = logic.coverageGaps(view(), week);
+  banner.className = `banner ${off.length || gaps.length ? 'attention' : 'good'}`;
   if (!results.length) return banner.replaceChildren();
-  if (!off.length) return banner.replaceChildren('Everyone is right on their target hours this week.');
 
-  const over = off.filter((r) => r.summary.status === 'over').length;
-  const under = off.length - over;
-  const parts = [over && `${over} over`, under && `${under} under`].filter(Boolean).join(' and ');
-  banner.replaceChildren(
-    `This week: ${parts} target hours.`,
-    el('ul', {}, off.map((r) => el('li', {}, `${r.person.name}: ${logic.statusSentence(r.person, r.summary)}`))),
-  );
+  const content = [];
+  if (gaps.length) {
+    content.push(el('div', {}, 'Required positions are missing:',
+      el('ul', {}, gaps.map((gap) => el('li', {}, `${dayName(gap.date)}: ${logic.gapSentence(gap)}`)))));
+  }
+  if (!off.length) {
+    content.push(el('div', {}, 'Everyone is right on their target hours this week.'));
+  } else {
+    const over = off.filter((r) => r.summary.status === 'over').length;
+    const under = off.length - over;
+    const parts = [over && `${over} over`, under && `${under} under`].filter(Boolean).join(' and ');
+    content.push(el('div', {}, `This week: ${parts} target hours.`,
+      el('ul', {}, off.map((r) => el('li', {}, `${r.person.name}: ${logic.statusSentence(r.person, r.summary)}`)))));
+  }
+  banner.replaceChildren(...content);
 }
+
+const dayName = (date) => logic.formatDate(date, { weekday: 'short', month: 'numeric', day: 'numeric' });
 
 function renderSchedule() {
   const root = $('#schedule');
@@ -159,10 +169,13 @@ function renderSchedule() {
 
   const dates = visibleDates();
   const today = logic.todayISO();
+  const gaps = logic.coverageGaps(view(), week);
   const head = el('tr', {},
     el('th', { className: 'name-col', scope: 'col' }, 'Team member'),
     dates.map((date) => el('th', { className: date === today ? 'today' : '', scope: 'col' },
-      logic.formatDate(date, { weekday: 'short', month: 'numeric', day: 'numeric' }))),
+      dayName(date),
+      gaps.filter((gap) => gap.date === date).map((gap) => el('span', { className: 'gap', title: logic.gapSentence(gap) },
+        `Needs ${gap.name}`)))),
     el('th', { className: 'total-col', scope: 'col' }, 'Week total'),
   );
 
@@ -312,9 +325,10 @@ function personDialog(person) {
   let employment = person?.employment ?? 'full';
   let hoursTouched = Boolean(person);
   const updateHint = () => {
-    holidayHint.textContent = employment === 'full'
-      ? 'Full time: each holiday counts as 8 hours.'
-      : 'Part time: holidays are blacked out but add no hours.';
+    const minutes = logic.holidayMinutes({ employment, weeklyTarget: Number(target.value) });
+    holidayHint.textContent = minutes
+      ? `Each holiday counts as ${logic.formatHours(minutes)} hours.`
+      : 'Holidays are blacked out but add no hours.';
   };
   const choices = el('fieldset', { className: 'field' },
     el('legend', {}, 'Employment'),
@@ -329,7 +343,7 @@ function personDialog(person) {
         },
       }),
       el('span', {}, label)))));
-  target.addEventListener('input', () => { hoursTouched = true; });
+  target.addEventListener('input', () => { hoursTouched = true; updateHint(); });
   updateHint();
   const home = el('select', {}, state.branches.map((b) =>
     el('option', { value: b.id, selected: b.id === (person?.branchId ?? view().branch.id) }, b.name)));
@@ -353,7 +367,7 @@ function personDialog(person) {
       if (wantsNew && label) {
         const existing = state.tags.find((t) => t.name.toLowerCase() === label.toLowerCase());
         tagId = existing?.id ?? newId();
-        if (!existing) state.tags.push({ id: tagId, name: label, color });
+        if (!existing) state.tags.push({ id: tagId, name: label, color, required: false });
       }
       const values = { name: cleanName, tagId, employment, weeklyTarget: hours, branchId: destination.id };
       if (person) Object.assign(state.people.find((p) => p.id === person.id), values);
@@ -613,12 +627,18 @@ function positionsDialog() {
   let color = nextColor();
   const name = el('input', { type: 'text', maxLength: 40, placeholder: 'New position name', autocomplete: 'off' });
 
+  const requiredBox = (checked, props = {}) => {
+    const box = el('input', { type: 'checkbox', checked, ...props });
+    return { box, row: el('label', { className: 'check' }, box, 'Required to open and close') };
+  };
+  const required = requiredBox(false);
+
   const add = (event) => {
     event.preventDefault();
     const label = name.value.trim();
     if (!label) return name.focus();
     if (state.tags.some((t) => t.name.toLowerCase() === label.toLowerCase())) return toast('That position already exists.');
-    change(() => state.tags.push({ id: newId(), name: label, color }));
+    change(() => state.tags.push({ id: newId(), name: label, color, required: required.box.checked }));
     positionsDialog();
   };
 
@@ -643,15 +663,20 @@ function positionsDialog() {
           positionsDialog();
         }, { className: 'danger' })),
       colorPicker(tag.color, (c) => change(() => { state.tags.find((t) => t.id === tag.id).color = c; })),
+      requiredBox(tag.required, {
+        onchange: (e) => change(() => { state.tags.find((t) => t.id === tag.id).required = e.target.checked; }),
+      }).row,
     );
   });
 
   openDialog('Positions',
-    el('p', { className: 'hint' }, 'Each position has a color that fills its shifts on the schedule.'),
+    el('p', { className: 'hint' }, 'Each position has a color that fills its shifts on the schedule. '
+      + 'Mark a position as required to be warned when nobody in it is there for the first start or the last end of a day.'),
     el('div', { className: 'list' }, items.length ? items : el('p', {}, 'No positions yet. Add one below.')),
     el('form', { className: 'item', onsubmit: add },
       el('div', { className: 'row' }, name, el('button', { type: 'submit', className: 'primary' }, 'Add')),
-      colorPicker(color, (c) => { color = c; })),
+      colorPicker(color, (c) => { color = c; }),
+      required.row),
     el('div', { className: 'actions' }, button('Done', closeDialog)),
   );
 }
@@ -700,7 +725,7 @@ function holidaysDialog(year = Number(week.slice(0, 4))) {
 
   const edited = Object.keys(state.holidayEdits).some((d) => d.startsWith(`${year}-`));
   openDialog('Holidays',
-    el('p', { className: 'hint' }, 'Holidays are blacked out. Full-time people get 8 hours for each. Federal Reserve holidays are filled in for every year.'),
+    el('p', { className: 'hint' }, 'Holidays are blacked out. Full-time people get 8 hours for each and 30-hour people get 6. Federal Reserve holidays are filled in for every year.'),
     el('div', { className: 'row' },
       button('‹', () => holidaysDialog(year - 1), { 'aria-label': 'Previous year' }),
       el('h3', {}, String(year)),

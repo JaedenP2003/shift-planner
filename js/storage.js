@@ -8,7 +8,7 @@ const KEY = 'shiftPlanner.data';
 const PREVIOUS_KEY = 'shiftPlanner.previous';
 const BACKUP_DATE_KEY = 'shiftPlanner.lastBackup';
 const BRANCH_KEY = 'shiftPlanner.branch';
-export const VERSION = 4; // 2: full/part time and lunch start. 3: schedule notes. 4: branches
+export const VERSION = 5; // 2: full/part time and lunch start. 3: schedule notes. 4: branches. 5: required positions
 
 export const emptyState = () => ({
   version: VERSION,
@@ -38,7 +38,7 @@ export function sanitize(raw) {
   for (const tag of raw.tags) {
     if (!isObject(tag) || !isId(tag.id) || !text(tag.name, 40)) continue;
     const color = /^#[0-9a-fA-F]{6}$/.test(tag.color) ? tag.color : '#00548E';
-    state.tags.push({ id: tag.id, name: text(tag.name, 40), color });
+    state.tags.push({ id: tag.id, name: text(tag.name, 40), color, required: tag.required === true });
   }
 
   const cleanNotes = (notes) => {
