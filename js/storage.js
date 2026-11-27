@@ -166,6 +166,11 @@ export const rememberBranch = (id) => {
   try { localStorage.setItem(BRANCH_KEY, id); } catch { /* not important */ }
 };
 
+// Removes the schedule from this browser, used when signing out.
+export function clearSchedule(store = localStorage) {
+  for (const key of [KEY, PREVIOUS_KEY]) store.removeItem(key);
+}
+
 // Asks the browser not to evict our data when disk space runs low.
 export async function requestPersistence() {
   try {

@@ -1,6 +1,6 @@
 # Shift Planner
 
-A weekly team schedule builder that runs entirely in the browser. No account and no server.
+A weekly team schedule builder. One shared sign-in, so everyone who edits sees the same schedule.
 
 ## Using it
 
@@ -23,11 +23,24 @@ a day when nobody in that position is there for the day's first start or its las
 
 ## Where the data lives
 
-Team members and schedules are saved in the browser's local storage, on that device only.
-Nothing is uploaded, so no names are ever in this repository. Clearing browsing data erases it,
-so download a file from **Backup** now and then. The same file moves data to another computer.
+Team members and schedules are saved in a Supabase database, with a copy in each signed-in browser.
+Edits made offline are kept in that browser and sent when the connection returns. If two people change
+the schedule at once, the first save wins and the other browser keeps its copy under **Backup**.
+**Sign out** removes the schedule from that browser. No names are ever in this repository.
+Download a file from **Backup** now and then.
 
 Don't commit backup files here: they contain names.
+
+## Setting up the shared account
+
+1. Create a Supabase project, turn off **Allow new users to sign up**, and run `supabase/setup.sql`
+   in its SQL editor.
+2. Under **Authentication > Users > Add user**, add the shared account with **Auto Confirm User** ticked.
+   For a plain username such as `schedule`, enter the email `schedule@branchschedule.github.io`.
+3. Allow that account in with the statement at the end of `supabase/setup.sql`.
+4. Put the project URL and publishable key in `js/config.js`.
+
+Free Supabase projects can be paused after a stretch without use; restore it from the dashboard.
 
 ## Trying it locally
 
@@ -39,7 +52,7 @@ Don't commit backup files here: they contain names.
 Push this folder to a repository, then in the repository open Settings → Pages,
 choose "Deploy from a branch", pick `main` and `/ (root)`.
 
-Saved data belongs to the web address, so the local copy and the published site keep separate data.
+The local copy and the published site share the same online schedule.
 
 ## Files
 
@@ -48,6 +61,9 @@ Saved data belongs to the web address, so the local copy and the published site 
 | `index.html`, `styles.css` | The page and its look, including print layout |
 | `js/logic.js` | Dates, holidays, hours, copy week |
 | `js/storage.js` | Saving, loading, checking backups |
+| `js/cloud.js`, `js/config.js` | Signing in and talking to Supabase |
+| `js/sync.js` | Keeps this browser and the shared copy in step |
+| `supabase/setup.sql` | The database table and who may use it |
 | `js/pdf.js` | Builds the PDF file |
 | `js/timefield.js` | The type-or-pick time box |
 | `js/app.js` | Draws the schedule and runs the dialogs |

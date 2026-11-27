@@ -4,6 +4,8 @@ import * as logic from './logic.js';
 import * as storage from './storage.js';
 import { buildPdf, textOn } from './pdf.js';
 import { timeField } from './timefield.js';
+import { createCloud, SESSION_KEY } from './cloud.js';
+import { createSync, REPLACED_KEY } from './sync.js';
 
 const COLORS = [
   ['Blue', '#00548E'], ['Orange', '#FF8300'], ['Sky', '#148CC5'], ['Green', '#2C9043'],
@@ -62,7 +64,10 @@ function showWarning(message) {
 function persist() {
   if (locked) return;
   const ok = storage.save(state);
-  showWarning(ok ? null : 'Your last change could NOT be saved (storage may be full or blocked). Use Backup to download a copy now.');
+  showWarning(ok ? null : 'Your last change could NOT be saved on this device (storage may be full or blocked). Use Backup to download a copy now.');
+  try { sync.markChanged(); } catch { /* the warning above already covers blocked storage */ }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => sync.flush(), 700);
 }
 
 // Every edit goes through here. With `message`, an Undo button is offered.
@@ -99,6 +104,117 @@ function toast(message, undo) {
   (dialog.open ? dialog : document.body).append(toastBox);
   toastBox.hidden = false;
   toastTimer = setTimeout(hideToast, 10000);
+}
+
+// ---------- signing in and saving online ----------
+
+const cloud = createCloud();
+let saveTimer;
+
+const SYNC_LABELS = {
+  saving: 'Saving…',
+  saved: 'Saved online',
+  offline: 'Offline',
+  error: 'Not saved online',
+  outdated: 'Refresh needed',
+  forbidden: 'No access',
+};
+
+const sync = createSync({
+  cloud,
+  getState: () => state,
+  // The shared schedule replaces what is on screen.
+  setState(next) {
+    if (dialog.open) closeDialog(); // its contents would be out of date
+    hideToast(); // an old Undo would revert other people's changes
+    state = next;
+    locked = false;
+    storage.save(state);
+    showWarning(null);
+    render();
+  },
+  onStatus(status) {
+    if (status === 'signed-out') return showSignIn('Please sign in again. Unsaved changes are still on this device.');
+    const waiting = sync.pending() && (status === 'offline' || status === 'error');
+    $('#sync-status').textContent = SYNC_LABELS[status] + (waiting ? ': will retry' : '');
+    $('#sync-status').dataset.status = status;
+    if (status === 'outdated') {
+      locked = true;
+      showWarning('The schedule was saved by a newer version of Shift Planner. Refresh this page before making changes.');
+    }
+    if (status === 'forbidden') showWarning('This account is not allowed to open the shared schedule.');
+  },
+  onReplaced(reason) {
+    showWarning((reason === 'first'
+      ? 'This device had its own schedule. You are now seeing the shared one. '
+      : 'Someone else saved changes first, so their version is shown. Please check your last change and make it again if needed. ')
+      + 'A copy of what was on this device is kept under Backup.');
+  },
+});
+
+// 'signin', 'loading' or 'app'. Nothing can be edited until the shared copy has been checked.
+function showScreen(screen) {
+  document.body.dataset.screen = screen;
+  for (const node of [$('main'), $('.topbar nav')]) node.inert = screen !== 'app';
+}
+
+function showSignIn(message = '') {
+  if (dialog.open) closeDialog();
+  hideToast();
+  showScreen('signin');
+  $('#signin-error').textContent = message;
+}
+
+async function connect() {
+  showScreen('loading');
+  $('#sync-status').textContent = 'Loading…';
+  await sync.refresh();
+  if (cloud.signedIn()) showScreen('app');
+}
+
+// Picks up other people's changes and retries anything not yet sent.
+function checkOnline() {
+  if (document.body.dataset.screen !== 'app' || document.hidden) return;
+  sync.refresh(() => !dialog.open);
+}
+
+$('#signin-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const { username, password } = form.elements;
+  if (!username.value.trim() || !password.value) {
+    $('#signin-error').textContent = 'Enter the username and password.';
+    return;
+  }
+  const submit = form.querySelector('button');
+  submit.disabled = true;
+  $('#signin-error').textContent = '';
+  try {
+    await cloud.signIn(username.value, password.value);
+    password.value = '';
+    await connect();
+  } catch (error) {
+    $('#signin-error').textContent = {
+      password: 'That username and password did not work.',
+      offline: 'Cannot reach the server. Check the internet connection and try again.',
+      forbidden: 'That account is not allowed to open this schedule.',
+    }[error.kind] ?? 'Signing in is not working right now. Try again in a few minutes.';
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+async function signOut() {
+  clearTimeout(saveTimer);
+  await sync.flush();
+  if (sync.pending() && !confirm('Some changes have not been saved online yet and will be lost. Sign out anyway?')) return;
+  await cloud.signOut();
+  sync.reset();
+  storage.clearSchedule();
+  ({ state, warning, locked } = storage.load());
+  showWarning(warning);
+  render();
+  showSignIn();
 }
 
 // ---------- drawing the week ----------
@@ -773,7 +889,7 @@ function backupDialog() {
         return alert('That file could not be read as a Shift Planner backup. Nothing was changed.');
       }
       const summary = `${imported.people.length} people and ${Object.keys(imported.shifts).length} scheduled days`;
-      if (state.people.length && !confirm(`Replace everything here with the backup (${summary})?`)) { file.value = ''; return; }
+      if (state.people.length && !confirm(`Replace the shared schedule, for everyone who signs in, with the backup (${summary})?`)) { file.value = ''; return; }
       locked = false;
       closeDialog();
       showWarning(null);
@@ -781,8 +897,9 @@ function backupDialog() {
     },
   });
 
+  const replaced = localStorage.getItem(REPLACED_KEY);
   openDialog('Backup',
-    el('p', {}, 'Your team and schedules are saved in this browser, on this device. A backup file protects them and moves them to another computer.'),
+    el('p', {}, 'Your team and schedules are saved to the shared account, with a copy in this browser. A backup file is an extra safety net.'),
     status,
     el('div', { className: 'row' },
       button('Download backup', () => {
@@ -793,6 +910,10 @@ function backupDialog() {
       }, { className: 'primary', disabled: locked }),
       button('Load a backup file…', () => file.click()),
       file),
+    replaced && el('div', { className: 'item' },
+      el('p', { className: 'hint' }, 'This browser kept a schedule that the shared one replaced. Download it to keep it, or load that file to use it.'),
+      el('div', { className: 'row' }, button('Download replaced copy',
+        () => download(replaced, `shift-planner-backup-replaced-${logic.todayISO()}.json`, 'application/json')))),
     el('div', { className: 'actions' }, button('Done', closeDialog)),
   );
 }
@@ -805,6 +926,7 @@ const actions = {
   positions: () => positionsDialog(),
   holidays: () => holidaysDialog(),
   backup: () => backupDialog(),
+  'sign-out': () => signOut(),
   'prev-week': () => goTo(logic.addDays(week, -7)),
   'next-week': () => goTo(logic.addDays(week, 7)),
   'this-week': () => goTo(logic.todayISO()),
@@ -843,6 +965,14 @@ $('#show-sunday').addEventListener('change', (e) => change(() => { state.showSun
 
 // If the planner is open in two tabs, keep them in step so one can't overwrite the other.
 window.addEventListener('storage', (event) => {
+  if (event.key === SESSION_KEY) {
+    // Signed in or out in another tab.
+    if (!cloud.signedIn()) return showSignIn();
+    if (document.body.dataset.screen !== 'signin') return;
+    ({ state, warning, locked } = storage.load());
+    render();
+    return connect();
+  }
   if (event.key !== null && !storage.isStorageKey(event.key)) return;
   ({ state, warning, locked } = storage.load());
   if (dialog.open) closeDialog();
@@ -851,6 +981,18 @@ window.addEventListener('storage', (event) => {
   render();
 });
 
+window.addEventListener('focus', checkOnline);
+window.addEventListener('online', checkOnline);
+document.addEventListener('visibilitychange', checkOnline);
+setInterval(checkOnline, 20000);
+window.addEventListener('beforeunload', (event) => {
+  if (cloud.signedIn() && sync.pending()) event.preventDefault();
+});
+
 showWarning(warning);
 render();
 if (state.people.length) storage.requestPersistence();
+// If this device's copy could not be read, start again from the shared one rather than sending an empty schedule.
+if (warning && !state.people.length) sync.reset();
+if (cloud.signedIn()) connect();
+else showSignIn();

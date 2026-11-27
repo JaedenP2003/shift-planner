@@ -42,7 +42,7 @@ button.danger { color: var(--red); }
 button:disabled { opacity: .4; cursor: default; }
 :focus-visible { outline: 3px solid var(--orange); outline-offset: 1px; }
 
-input[type="text"], input[type="number"], input[type="date"], select, textarea {
+input[type="text"], input[type="password"], input[type="number"], input[type="date"], select, textarea {
   border: 1px solid var(--line);
   background: #fff;
   padding: 8px 10px;
@@ -61,6 +61,13 @@ input[type="text"], input[type="number"], input[type="date"], select, textarea {
   border-bottom: 5px solid var(--orange);
 }
 .topbar h1 { font-size: 24px; }
+#sync-status { margin-left: auto; margin-right: 12px; font-size: 13px; opacity: .85; }
+#sync-status[data-status="offline"], #sync-status[data-status="error"], #sync-status[data-status="outdated"] { color: var(--orange); opacity: 1; font-weight: 700; }
+body[data-screen="signin"] :is(main, footer, .topbar nav, #sync-status) { display: none; }
+body:not([data-screen="signin"]) #signin { display: none; }
+body[data-screen="loading"] main { opacity: .5; }
+#signin { display: flex; justify-content: center; padding: 48px 16px; }
+#signin-form { width: min(360px, 100%); background: #fff; border-top: 4px solid var(--orange); padding: 24px; }
 .topbar nav { display: flex; flex-wrap: wrap; gap: 8px; }
 .topbar button { background: transparent; color: #fff; border-color: #ffffff55; }
 .topbar button:hover { border-color: #fff; }
@@ -209,7 +216,7 @@ dialog::backdrop { background: #00234599; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { background: #fff; font-size: 11px; }
   .print-only { display: inline; }
-  .topbar nav, .branches, .week-nav, .week-actions, .banner, .warning, footer, .toast, dialog { display: none !important; }
+  .topbar nav, #sync-status, #signin, .branches, .week-nav, .week-actions, .banner, .warning, footer, .toast, dialog { display: none !important; }
   .topbar { padding: 8px 12px; }
   main { padding: 10px 0 0; }
   .table-wrap { overflow: visible; border: 0; }

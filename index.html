@@ -11,17 +11,33 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-screen="loading">
   <header class="topbar">
     <h1>Shift Planner</h1>
+    <span id="sync-status" role="status"></span>
     <nav>
       <button type="button" data-action="add-person" class="primary">+ Add person</button>
       <button type="button" data-action="branches">Branches</button>
       <button type="button" data-action="positions">Positions</button>
       <button type="button" data-action="holidays">Holidays</button>
       <button type="button" data-action="backup">Backup</button>
+      <button type="button" data-action="sign-out">Sign out</button>
     </nav>
   </header>
+
+  <section id="signin" aria-labelledby="signin-title">
+    <form id="signin-form" class="list" novalidate>
+      <h2 id="signin-title">Sign in</h2>
+      <label class="field">Username
+        <input type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false">
+      </label>
+      <label class="field">Password
+        <input type="password" name="password" autocomplete="current-password">
+      </label>
+      <p id="signin-error" class="error" role="alert"></p>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </section>
 
   <main>
     <div id="warning" class="warning" role="alert" hidden></div>
@@ -49,7 +65,7 @@
   </main>
 
   <footer>
-    <span>Your team and schedules are saved only in this browser.</span>
+    <span>Your team and schedules are saved to the shared account.</span>
     <span id="backup-note"></span>
     <span>A personal planning tool, not an official America First Credit Union product.</span>
   </footer>
